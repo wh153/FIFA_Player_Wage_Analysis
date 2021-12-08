@@ -1,0 +1,642 @@
+---
+title: "P1"
+author: "Wil"
+date: "10/29/2021"
+output: pdf_document
+---
+
+```{r}
+
+library(ggplot2)
+library(stargazer)
+library(tidyverse)
+library(arm)
+library(pROC)
+library(e1071)
+library(caret)
+library(ggplot2)
+require(gridExtra)
+library(nnet)
+library(MASS)
+```
+
+```{r}
+fifa <- read.csv("~/Downloads/players_20.csv")
+head(fifa)
+#fifa <- as_tibble(fifa)
+```
+```{r}
+#table(fifa$club)
+```
+
+```{r}
+#variables to keep
+# age, height_cm, weight_kg, nationality, club, overall, potential, wage_eur, player_positions, preferred_foot, international_reputation, work_rate(?), body_type(?)
+
+#fifa <- fifa[,c('age', 'height_cm', 'weight_kg', nationality, club, overall, potential, wage_eur, player_positions, preferred_foot, #international_reputation, work_rate, body_type(?))]
+#fifa
+#body type, nationality is not important 
+```
+
+```{r}
+fifa <- fifa %>% 
+  dplyr::select(age, height_cm, weight_kg, club, overall, wage_eur, player_positions, preferred_foot, international_reputation)
+fifa
+```
+
+```{r}
+library(stringr)
+
+#position_new <- substr(fifa$player_positions,start=1,stop=2)
+fifa$position_new <- sapply(strsplit(fifa$player_positions,","), "[",1)
+head(fifa$position_new)
+```
+
+
+```{r}
+DF = c("SW", "LWB", "RWB", "LB", "CB")
+MF = c("DM", "LM", "RM", "CM", "AM", "CAM", "CDM")
+FW = c("CF", "RF", "LF", "ST", "LW", "RW")
+
+#make category variable with four levels
+fifa$player_position_new <- "GK"
+#(is.element(fifa$player_positions,DF))[1:20]
+#fifa$player_position_new[which(is.element(fifa$position_new,DF))] <- "DF"
+#fifa$player_position_new[c(is.element(fifa$position_new,DF))] <- "DF"
+#fifa$player_position_new[is.element(fifa$player_positions,MF),] <- "MF"
+#fifa$player_position_new[is.element(fifa$player_positions,FW),] <- "FW"
+fifa$player_position_new[c(is.element(fifa$position_new,DF))] <- "DF"
+fifa$player_position_new[c(is.element(fifa$position_new,MF))] <- "MF"
+fifa$player_position_new[c(is.element(fifa$position_new,FW))] <- "FW"
+fifa
+```
+
+```{r}
+#fifa_new <- fifa[1:10,]
+#fifa_new$player_positions[c(TRUE, FALSE, TRUE, FALSE, TRUE, FALSE, TRUE, FALSE, TRUE)]
+```
+
+```{r}
+fifa$bmi<- fifa$weight_kg / (fifa$height_cm / 100) ** 2
+fifa
+```
+
+```{r}
+#unique(fifa$club)
+```
+
+
+```{r}
+strong_club <- c("FC Barcelona", "Juventus", "Manchester City", "Real Madrid", "Liverpool", "Paris Saint-Germain", "FC Bayern München", "Tottenham Hotspur", "Borussia Dortmund", "Atlético Madrid", "Napoli", "Inter", "Manchester United", "Lazio", "Valencia CF", "Chelsea", "Arsenal", "RB Leipzig", "Real Betis", "Sevilla FC")
+
+fifa$player_in_strong_club <- 0
+fifa$player_in_strong_club[c(is.element(fifa$club,strong_club))] <- 1
+
+fifa
+
+```
+
+```{r}
+# Final subset
+fifa <- fifa %>% 
+  dplyr::select(age, bmi, player_in_strong_club, overall, wage_eur, player_position_new, preferred_foot, international_reputation)
+fifa
+```
+
+```{r, eval = FALSE}
+#We no longer use this iteration for player_position
+DF = c("SW", "LWB", "RWB", "LB", "CB")
+MF = c("DM", "LM", "RM", "CM", "AM", "CAM")
+FW = c("CF", "RF", "LF", "ST", "LW", "RW")
+
+all_cat = list(DF, MF, FW)
+
+sam1 = fifa$player_positions[6]
+sp1 = str_split(sam1, ",")[[1]]
+sp1 = str_trim(sp1)
+d = c(0, 0, 0)
+for (s in sp1) {
+  for (i in seq_len(3)) {
+    if (s %in% all_cat[[i]]) {
+      
+      d[i] = 1
+    }
+  }
+}
+
+
+```
+
+```{r}
+fifa$player_in_strong_club <- factor(fifa$player_in_strong_club)
+fifa$player_position_new <- factor(fifa$player_position_new)
+fifa$preferred_foot <- factor(fifa$preferred_foot)
+fifa$international_reputation <- factor(fifa$international_reputation)
+
+fifa
+```
+
+
+```{r}
+#We no longer use body_type
+#sample = fifa$body_type
+#table(sample)
+#fifa[fifa$body_type %in% (c('Normal', 'Lean', 'Stocky')),]
+```
+
+```{r}
+sum(is.na(fifa$age))
+
+sum(is.na(fifa$wage_eur))
+
+sum(is.na(fifa$player_position_new))
+
+summary(fifa)
+```
+
+```{r}
+ggplot(fifa, aes(log(x=wage_eur))) + geom_histogram()
+
+#min(fifa$wage_eur)
+
+newdata <- fifa[order(fifa$wage_eur),]
+newdata
+
+table(fifa$wage_eur)
+```
+
+```{r}
+df<-fifa[!(fifa$wage_eur==0),]
+df
+summary(df)
+```
+
+```{r}
+
+wage_breaks <- c(1000, 2000, 4000, 10000, 20000, 50000, Inf)
+wage_labels <- c("base salary", "junior salary", "advanced salary", "senior salary", "top salary", "star salary")
+wage_brackets <- cut(x=df$wage_eur, breaks=wage_breaks, 
+labels=wage_labels, include.lowest = TRUE)
+df <- mutate(df, wage_brackets)
+df
+#not0To100K <- filter(df, wage_brackets != "0-100k") 
+ggplot(df, aes(x = wage_brackets)) + 
+geom_bar(aes(fill = ..count..)) + 
+ggtitle("Distribution of wage in salary groups")
+```
+
+```{r}
+table(df$wage_brackets)
+df
+```
+
+```{r}
+df$wage_brackets <- ordered(df$wage_brackets,
+                              levels=c("base salary", "junior salary", "advanced salary", "senior salary", "top salary", "star salary"))
+
+df$agec <- df$age - mean(df$age)
+df$bmic <- df$bmi - mean(df$bmi)
+df$overallc <- df$overall - mean(df$overall)
+df
+```
+```{r}
+ggplot(df,aes(x=wage_brackets, y=age, fill=wage_brackets)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette="Greens") +
+  labs(x="wage_levels",y="age") + 
+  theme_classic() + theme(legend.position="none")
+
+ggplot(df,aes(x=wage_brackets, y= bmi, fill=wage_brackets)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette="Greens") +
+  labs(x="wage_levels",y="player's bmi") + 
+  theme_classic() + theme(legend.position="none")
+
+ggplot(df,aes(x=wage_brackets, y=overall, fill=wage_brackets)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette="Greens") +
+  labs(x="wage_levels",y="overall_rating") + 
+  theme_classic() + theme(legend.position="none")
+
+table(df$wage_brackets, df$preferred_foot)
+prop.table(table(df$wage_brackets, df$preferred_foot), 2)
+chisq.test(table(df$wage_brackets, df$preferred_foot))
+
+table(df$wage_brackets, df$player_in_strong_club)
+prop.table(table(df$wage_brackets, df$player_in_strong_club), 2)
+chisq.test(table(df$wage_brackets, df$player_in_strong_club))
+
+table(df$wage_brackets, df$player_position_new)
+prop.table(table(df$wage_brackets, df$player_position_new), 2)
+chisq.test(table(df$wage_brackets, df$player_position_new))
+
+table(df$wage_brackets, df$international_reputation)
+prop.table(table(df$wage_brackets, df$international_reputation), 2)
+chisq.test(table(df$wage_brackets, df$international_reputation))
+
+knitr::kable(prop.table(table(df$wage_brackets, df$preferred_foot), 2),2)
+```
+
+interaction
+```{r}
+ggplot(df,aes(x=wage_brackets, y=age, fill=wage_brackets)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette="Greens") +
+  labs(x="wage_levels",y="age") + 
+  theme_classic() + theme(legend.position="none") +
+  facet_wrap(~ player_in_strong_club)
+```
+
+
+
+A fit for multinomial logistic regression:
+```{r}
+m_reg_1 <- multinom(wage_brackets ~ agec + bmic + overallc + player_in_strong_club + preferred_foot + player_position_new + international_reputation, data=df)
+
+#summary(m_reg_1)
+exp(coef(m_reg_1))
+
+exp(confint(m_reg_1))
+
+```
+
+```{r, eval=FALSE}
+output1 <- summary(m_reg_1)
+z_value <- output1$coefficients/output1$standard.errors
+p_value <- (1 - pnorm(abs(z_value), 0, 1))*2 
+#we are using two-tailed z test, that is, a normal approximation
+full_summary1 <- lapply(c(2:6),function(x) rbind(output1$coefficients[as.character(x),],
+                                                 output1$standard.errors[as.character(x),],
+                                                 z_value[as.character(x),],
+                                                 p_value[as.character(x),]))
+kable(lapply(full_summary1,function(x) {rownames(x) <- c("Coefficient","Std. Errors","z-value","p-value"); x}))
+```
+
+```{r}
+m_reg_noage <- multinom(wage_brackets ~ bmic + overallc + player_in_strong_club + preferred_foot + player_position_new + international_reputation, data=df)
+anova(m_reg_1, m_reg_noage, test = "Chisq")
+
+m_reg_nooverall <- multinom(wage_brackets ~ agec + bmic + player_in_strong_club + preferred_foot + player_position_new + international_reputation, data=df)
+anova(m_reg_1, m_reg_nooverall, test = "Chisq")
+
+m_reg_noclub <- multinom(wage_brackets ~ agec + bmic + overallc + preferred_foot + player_position_new + international_reputation, data=df)
+anova(m_reg_1, m_reg_noclub, test = "Chisq")
+
+m_reg_nofoot <- multinom(wage_brackets ~ agec + bmic + overallc + player_in_strong_club  + player_position_new + international_reputation, data=df)
+anova(m_reg_1, m_reg_nofoot, test = "Chisq")
+
+m_reg_noposition <- multinom(wage_brackets ~ agec + bmic + overallc + player_in_strong_club + preferred_foot  + international_reputation, data=df)
+anova(m_reg_1, m_reg_noposition, test = "Chisq")
+
+m_reg_norep <- multinom(wage_brackets ~ agec + bmic + overallc + player_in_strong_club + preferred_foot + player_position_new, data=df)
+anova(m_reg_1, m_reg_norep, test = "Chisq")
+```
+
+Acording to the Chi-square test, preferred_foot is not a signidicant predictor
+
+```{r}
+m_reg_2 <- multinom(wage_brackets ~ agec + bmic + overallc + player_in_strong_club  + player_position_new + international_reputation, data=df)
+```
+
+```{r}
+#predicted probabilities for cases in the model
+predprobs <- fitted(m_reg_2) 
+#look at first five rows just to see what results
+predprobs[15000:15007,]
+```
+
+
+```{r}
+#for viewcat = 1:  create a raw residual using only the first column of the predicted probabilities
+rawresid1 <- (df$wage_brackets == "base salary") -  predprobs[,1]
+
+#for viewcat = 2:  create a raw residual using only the second column of the predicted probabilities
+rawresid2 <- (df$wage_brackets == "junior salary") -  predprobs[,2]
+
+#for viewcat = 3:  create a raw residual using only the third column of the predicted probabilities
+rawresid3 <- (df$wage_brackets == "advanced salary") -  predprobs[,3]
+
+#for viewcat = 4:  create a raw residual using only the fourth column of the predicted probabilities
+rawresid4 <- (df$wage_brackets == "senior salary") -  predprobs[,4]
+
+rawresid5 <- (df$wage_brackets == "top salary") -  predprobs[,5]
+
+rawresid6 <- (df$wage_brackets == "star salary") -  predprobs[,6]
+
+
+
+##can do binned plots for continuous variables
+#make a 2 by 2 graphical display
+par(mfcol = c(2,3))
+binnedplot(df$agec, rawresid1, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = base")
+binnedplot(df$agec, rawresid2, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = junior")
+binnedplot(df$agec, rawresid3, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = advanced")
+binnedplot(df$agec, rawresid4, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = senior")
+binnedplot(df$agec, rawresid5, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = top")
+binnedplot(df$agec, rawresid6, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = star")
+```
+```{r}
+m_reg_3 <- multinom(wage_brackets ~ poly(agec,3)  + bmic + overallc + player_in_strong_club  + player_position_new + international_reputation, data=df)
+
+predprobs <- fitted(m_reg_3) 
+
+rawresid1 <- (df$wage_brackets == "base salary") -  predprobs[,1]
+
+#for viewcat = 2:  create a raw residual using only the second column of the predicted probabilities
+rawresid2 <- (df$wage_brackets == "junior salary") -  predprobs[,2]
+
+#for viewcat = 3:  create a raw residual using only the third column of the predicted probabilities
+rawresid3 <- (df$wage_brackets == "advanced salary") -  predprobs[,3]
+
+#for viewcat = 4:  create a raw residual using only the fourth column of the predicted probabilities
+rawresid4 <- (df$wage_brackets == "senior salary") -  predprobs[,4]
+
+rawresid5 <- (df$wage_brackets == "top salary") -  predprobs[,5]
+
+rawresid6 <- (df$wage_brackets == "star salary") -  predprobs[,6]
+
+
+
+##can do binned plots for continuous variables
+#make a 2 by 2 graphical display
+par(mfcol = c(2,3))
+binnedplot(df$agec, rawresid1, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = base")
+binnedplot(df$agec, rawresid2, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = junior")
+binnedplot(df$agec, rawresid3, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = advanced")
+binnedplot(df$agec, rawresid4, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = senior")
+binnedplot(df$agec, rawresid5, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = top")
+binnedplot(df$agec, rawresid6, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = star")
+```
+
+
+
+```{r}
+par(mfcol = c(2,3))
+binnedplot(df$overallc, rawresid1, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = base")
+binnedplot(df$overallc, rawresid2, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = junior")
+binnedplot(df$overallc, rawresid3, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = advanced")
+binnedplot(df$overallc, rawresid4, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = senior")
+binnedplot(df$overallc, rawresid5, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = top")
+binnedplot(df$overallc, rawresid6, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = star")
+```
+
+```{r}
+m_reg_4 <- multinom(wage_brackets ~ poly(agec,3)  + bmic + poly(overallc, 5) + player_in_strong_club  + player_position_new + international_reputation, data=df)
+
+predprobs <- fitted(m_reg_4) 
+
+rawresid1 <- (df$wage_brackets == "base salary") -  predprobs[,1]
+
+#for viewcat = 2:  create a raw residual using only the second column of the predicted probabilities
+rawresid2 <- (df$wage_brackets == "junior salary") -  predprobs[,2]
+
+#for viewcat = 3:  create a raw residual using only the third column of the predicted probabilities
+rawresid3 <- (df$wage_brackets == "advanced salary") -  predprobs[,3]
+
+#for viewcat = 4:  create a raw residual using only the fourth column of the predicted probabilities
+rawresid4 <- (df$wage_brackets == "senior salary") -  predprobs[,4]
+
+rawresid5 <- (df$wage_brackets == "top salary") -  predprobs[,5]
+
+rawresid6 <- (df$wage_brackets == "star salary") -  predprobs[,6]
+
+
+
+##can do binned plots for continuous variables
+#make a 2 by 2 graphical display
+par(mfcol = c(2,3))
+binnedplot(df$overallc, rawresid1, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = base")
+binnedplot(df$overallc, rawresid2, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = junior")
+binnedplot(df$overallc, rawresid3, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = advanced")
+binnedplot(df$overallc, rawresid4, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = senior")
+binnedplot(df$overallc, rawresid5, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = top")
+binnedplot(df$overallc, rawresid6, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = star")
+```
+
+```{r}
+par(mfcol = c(2,3))
+binnedplot(df$bmic, rawresid1, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = base")
+binnedplot(df$bmic, rawresid2, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = junior")
+binnedplot(df$bmic, rawresid3, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = advanced")
+binnedplot(df$bmic, rawresid4, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = senior")
+binnedplot(df$bmic, rawresid5, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = top")
+binnedplot(df$bmic, rawresid6, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = high")
+```
+
+```{r}
+## Accuracy
+
+predprobs2 <- fitted(m_reg_2) 
+pred_classes <- predict(m_reg_2)
+Conf_mat <- confusionMatrix(as.factor(pred_classes),as.factor(df$wage_brackets))
+Conf_mat$table
+Conf_mat$overall["Accuracy"];
+Conf_mat$byClass[,c("Sensitivity","Specificity")]
+
+
+## Individual ROC curves for the different levels
+#here we basically treat each level as a standalone level
+par(mfcol = c(2,3))
+roc((df$wage_brackets == "base salary"),predprobs2[,1],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="red3",percent=T,main="base")
+roc((df$wage_brackets == "junior salary"),predprobs2[,2],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="gray3",percent=T,main="junior")
+roc((df$wage_brackets == "advanced salary"),predprobs2[,3],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="green3",percent=T,main="advanced")
+roc((df$wage_brackets == "senior salary"),predprobs2[,4],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="blue3",percent=T,main="senior")
+roc((df$wage_brackets == "top salary"),predprobs2[,5],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="blue3",percent=T,main="top")
+roc((df$wage_brackets == "star salary"),predprobs2[,6],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="blue3",percent=T,main="star")
+```
+
+```{r}
+## Accuracy
+
+predprobs <- fitted(m_reg_4) 
+pred_classes <- predict(m_reg_4)
+Conf_mat <- confusionMatrix(as.factor(pred_classes),as.factor(df$wage_brackets))
+Conf_mat$table
+Conf_mat$overall["Accuracy"];
+Conf_mat$byClass[,c("Sensitivity","Specificity")]
+
+
+## Individual ROC curves for the different levels
+#here we basically treat each level as a standalone level
+par(mfcol = c(2,3))
+roc((df$wage_brackets == "base salary"),predprobs[,1],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="red3",percent=T,main="base")
+roc((df$wage_brackets == "junior salary"),predprobs[,2],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="gray3",percent=T,main="junior")
+roc((df$wage_brackets == "advanced salary"),predprobs[,3],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="green3",percent=T,main="advanced")
+roc((df$wage_brackets == "senior salary"),predprobs[,4],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="blue3",percent=T,main="senior")
+roc((df$wage_brackets == "top salary"),predprobs[,5],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="blue3",percent=T,main="top")
+roc((df$wage_brackets == "star salary"),predprobs[,6],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="blue3",percent=T,main="star")
+```
+
+Scientifically it is possible to have interaction between overall rating and being in a strong club, check:
+
+```{r, eval=FALSE}
+m_reg_5 <- multinom(wage_brackets ~ poly(agec,3)  + bmic + poly(overallc, 5) + player_in_strong_club  + player_position_new + international_reputation + poly(overallc, 5):player_in_strong_club, data=df)
+
+anova(m_reg_4, m_reg_5, test = "Chisq") 
+## NOT significant
+
+m_reg_6 <- multinom(wage_brackets ~ poly(agec,3)  + bmic + poly(overallc, 5) + player_in_strong_club  + player_position_new + international_reputation + poly(agec,3):player_in_strong_club, data=df)
+
+anova(m_reg_4, m_reg_6, test = "Chisq") 
+## NOT significant
+```
+
+```{r}
+exp(coef(m_reg_4))
+
+exp(confint(m_reg_4))
+
+#knitr::kable(exp(coef(m_reg_4)))
+```
+
+```{r, eval=FALSE}
+### Too little data in some levels of international_reputation, disregard it for interaction
+
+### Turn out that we do not need stepwise model selection here for multinomial logistic/proportional odds
+Full_model <- multinom(wage_brackets ~ agec + bmic + overallc + player_in_strong_club  + player_position_new + international_reputation + player_in_strong_club * (overallc + agec + bmic + player_position_new ) + player_position_new * (overallc + agec + bmic + player_in_strong_club), data=df)
+
+Null_model <- multinom(wage_brackets ~ agec + bmic + overallc + player_in_strong_club + player_position_new + international_reputation, data = df)
+```
+```{r, eval=FALSE}
+### Too little data in some levels of international_reputation, disregard it for interaction
+
+### Turn out that we do not need stepwise model selection here for multinomial logistic/proportional odds
+model_aic <- step(Null_model,scope=formula(Full_model),direction="both",
+     trace=0)
+```
+
+A fit for proportional odds model
+```{r}
+df <- as.data.frame(df)
+df$wage_brackets_num <- as.numeric(df$wage_brackets)
+df$wage_brackets_num <- as.ordered(df$wage_brackets_num)
+p_odds <- MASS::polr(wage_brackets ~ age + bmi + overall + player_in_strong_club + preferred_foot + player_position_new + international_reputation, data=df, Hess = T)
+
+
+summary(p_odds)
+
+#coef(p_reg_1)
+#exp(coef(p_reg_1))
+
+confint(p_odds)
+#exp(confint(p_reg_1))
+#summary(p_reg_1)
+
+```
+
+```{r}
+p_odds_2 <- polr(wage_brackets ~ poly(agec,5)  + bmic + poly(overallc, 4) + player_in_strong_club  + player_position_new + international_reputation, data=df, Hess = T)
+
+predprobs <- fitted(p_odds_2) 
+
+rawresid1 <- (df$wage_brackets == "base salary") -  predprobs[,1]
+
+#for viewcat = 2:  create a raw residual using only the second column of the predicted probabilities
+rawresid2 <- (df$wage_brackets == "junior salary") -  predprobs[,2]
+
+#for viewcat = 3:  create a raw residual using only the third column of the predicted probabilities
+rawresid3 <- (df$wage_brackets == "advanced salary") -  predprobs[,3]
+
+#for viewcat = 4:  create a raw residual using only the fourth column of the predicted probabilities
+rawresid4 <- (df$wage_brackets == "senior salary") -  predprobs[,4]
+
+rawresid5 <- (df$wage_brackets == "top salary") -  predprobs[,5]
+
+rawresid6 <- (df$wage_brackets == "star salary") -  predprobs[,6]
+
+
+
+##can do binned plots for continuous variables
+#make a 2 by 2 graphical display
+par(mfcol = c(2,3))
+binnedplot(df$overallc, rawresid1, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = base")
+binnedplot(df$overallc, rawresid2, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = junior")
+binnedplot(df$overallc, rawresid3, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = advanced")
+binnedplot(df$overallc, rawresid4, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = senior")
+binnedplot(df$overallc, rawresid5, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = top")
+binnedplot(df$overallc, rawresid6, xlab = "rating centered", ylab = "Raw residuals", main = "Binned plot: salary = star")
+
+binnedplot(df$agec, rawresid1, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = base")
+binnedplot(df$agec, rawresid2, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = junior")
+binnedplot(df$agec, rawresid3, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = advanced")
+binnedplot(df$agec, rawresid4, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = senior")
+binnedplot(df$agec, rawresid5, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = top")
+binnedplot(df$agec, rawresid6, xlab = "age centered", ylab = "Raw residuals", main = "Binned plot: salary = star")
+
+binnedplot(df$bmic, rawresid1, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = base")
+binnedplot(df$bmic, rawresid2, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = junior")
+binnedplot(df$bmic, rawresid3, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = advanced")
+binnedplot(df$bmic, rawresid4, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = senior")
+binnedplot(df$bmic, rawresid5, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = top")
+binnedplot(df$bmic, rawresid6, xlab = "bmi centered", ylab = "Raw residuals", main = "Binned plot: salary = high")
+```
+```{r}
+summary(p_odds_2)
+#once again there are no p-values directly from function
+#however, we can use the CIs for inference
+coef(p_odds_2)
+confint(p_odds_2)
+```
+
+```{r}
+stargazer(coef(p_odds_2),type="latex",single.row = T)
+stargazer(confint(p_odds_2),type="latex",single.row = T)
+```
+
+```{r}
+knitr::kable(summary(p_odds_2)$coefficients, digit = 2)
+knitr::kable(confint(p_odds_2), digit = 2)
+```
+
+```{r}
+## Accuracy
+
+predprobs <- fitted(p_odds_2) 
+pred_classes <- predict(p_odds_2)
+Conf_mat <- confusionMatrix(as.factor(pred_classes),as.factor(df$wage_brackets))
+Conf_mat$table
+Conf_mat$overall["Accuracy"];
+Conf_mat$byClass[,c("Sensitivity","Specificity")]
+
+
+## Individual ROC curves for the different levels
+#here we basically treat each level as a standalone level
+par(mfcol = c(2,3))
+roc((df$wage_brackets == "base salary"),predprobs[,1],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="red3",percent=T,main="base")
+roc((df$wage_brackets == "junior salary"),predprobs[,2],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="gray3",percent=T,main="junior")
+roc((df$wage_brackets == "advanced salary"),predprobs[,3],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="green3",percent=T,main="advanced")
+roc((df$wage_brackets == "senior salary"),predprobs[,4],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="blue3",percent=T,main="senior")
+roc((df$wage_brackets == "top salary"),predprobs[,5],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="blue3",percent=T,main="top")
+roc((df$wage_brackets == "star salary"),predprobs[,6],plot=T,print.thres="best",legacy.axes=T,print.auc =T,
+    col="blue3",percent=T,main="star")
+```
+```{r}
+library(car)
+vif(p_odds_2)
+```
+
+```{r, eval=FALSE}
+Model2_inter_star  <- lm(wage_eur_mod~age + bmi + player_in_strong_club + overall + player_position_new + preferred_foot + international_reputation,
+                         data=fifa) 
+#Must fit preferred model on raw scale for response
+boxcox_trans <- boxcox(Model2_inter_star,lambda = seq(-5, 5, length = 50))
+lambda_trans <- boxcox_trans$x[boxcox_trans$y == max(boxcox_trans$y)]
+lambda_trans
+```
